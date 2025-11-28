@@ -1,180 +1,319 @@
-#!/usr/bin/python
-from __future__ import print_function
+#!/usr/bin/env python3
+# =============================================================================
+# pybrute.py - Multi-tool steganography brute-forcer
+# Part of stego-toolkit (2025 refresh)
+# =============================================================================
+"""
+Brute-force password cracker for various steganography tools.
+Supports: steghide, outguess, outguess-0.13, openstego
+"""
 
 import os
 import re
 import sys
-import md5
+import hashlib
 import argparse
 import threading
 import subprocess
-from tqdm import tqdm
+from typing import Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+try:
+    from tqdm import tqdm
+except ImportError:
+    # Fallback if tqdm is not available
+    class tqdm:
+        def __init__(self, total=0, **kwargs):
+            self.total = total
+            self.n = 0
+
+        def update(self, n=1):
+            self.n += n
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
 
 
-class ThreadedCracker(threading.Thread):
-    def __init__(self, pool, args):
-        threading.Thread.__init__(self)
-        self.pool = pool
-        self.args = args
+# Global flag to stop on first success
+found_password = threading.Event()
 
-    def crack(self):
-        self.pool.acquire()
-        self.start()
 
-    def run(self):
+class StegoCracker:
+    """Base class for steganography crackers."""
+
+    def __init__(self, stego_file: str):
+        self.stego_file = stego_file
+
+    def try_password(self, passphrase: str) -> Optional[str]:
+        """Try a single password. Returns message if successful, None otherwise."""
+        raise NotImplementedError("Subclasses must implement try_password")
+
+
+class SteghideCracker(StegoCracker):
+    """Cracker for steghide encrypted files."""
+
+    def try_password(self, passphrase: str) -> Optional[str]:
+        if found_password.is_set():
+            return None
+
         try:
-            self.crack_function(*self.args)
-        except Exception as e:
-            print("Error cracking {} - {}".format(self.args, e))
-        finally:
-            self.pool.release()
+            process = subprocess.Popen(
+                ['steghide', 'info', self.stego_file, '-p', passphrase],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            out, err = process.communicate(timeout=30)
+            out = out.decode('utf-8', errors='ignore')
 
-    def crack_function(self):
-        raise Exception("Not implemented")
-
-
-class ThreadedSteghideCracker(ThreadedCracker):
-    def crack_function(self, stego_file, passphrase):
-        process = subprocess.Popen(['steghide',
-                                    'info',
-                                    stego_file,
-                                    '-p', passphrase],
-                                   stdout=subprocess.PIPE,
-                                   stderr=subprocess.PIPE)
-        (out, err) = process.communicate()
-        m = re.search(r"embedded file \"(.*)\"", out)
-        if m is not None:
-            print("\nFound '{}'!\n\
-Extract with `steghide extract -sf {} -p \"{}\"`"
-                  .format(m.group(1), stego_file, passphrase))
-            sys.exit(0)
+            match = re.search(r'embedded file "(.+)"', out)
+            if match:
+                found_password.set()
+                return (
+                    f"\n[+] PASSWORD FOUND: '{passphrase}'\n"
+                    f"[+] Embedded file: '{match.group(1)}'\n"
+                    f"[+] Extract with: steghide extract -sf {self.stego_file} -p \"{passphrase}\""
+                )
+        except subprocess.TimeoutExpired:
+            pass
+        except Exception:
+            pass
+        return None
 
 
-class ThreadedOutguessCracker(ThreadedCracker):
-    def crack_function(self, stego_file, passphrase):
-        tmp_file = "/tmp/{}".format(md5.new(passphrase).hexdigest())
-        process = subprocess.Popen(['outguess',
-                                    '-k', passphrase,
-                                    '-r', stego_file,
-                                    tmp_file],
-                                   stdout=subprocess.PIPE,
-                                   stderr=subprocess.PIPE)
-        (out, err) = process.communicate()
+class OutguessCracker(StegoCracker):
+    """Cracker for outguess encrypted files."""
+
+    def __init__(self, stego_file: str, version: str = "outguess"):
+        super().__init__(stego_file)
+        self.command = version  # "outguess" or "outguess-0.13"
+
+    def try_password(self, passphrase: str) -> Optional[str]:
+        if found_password.is_set():
+            return None
+
+        tmp_file = f"/tmp/{hashlib.md5(passphrase.encode()).hexdigest()}"
         try:
-            with open(tmp_file, "r") as f:
-                data = f.read()
+            process = subprocess.Popen(
+                [self.command, '-k', passphrase, '-r', self.stego_file, tmp_file],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            process.communicate(timeout=30)
+
+            if os.path.exists(tmp_file):
+                with open(tmp_file, 'rb') as f:
+                    data = f.read()
+
+                os.remove(tmp_file)
+
                 if len(data) > 0:
-                    ascii_data = "".join(filter(lambda x: ord(x) < 128, data))
-                    if float(len(ascii_data)) / float(len(data)) > 0.8:
-                        print("\nFound secret message:\n---\n{}\n---\n\
-Extract with `outguess -k \"{}\" -r {} /tmp/outguess_secret.txt`"
-                              .format(ascii_data, passphrase, stego_file))
-                        sys.exit(0)
+                    # Check if data is mostly ASCII (likely text)
+                    ascii_chars = sum(1 for b in data if b < 128)
+                    if len(data) > 0 and float(ascii_chars) / float(len(data)) > 0.8:
+                        found_password.set()
+                        preview = data[:500].decode('utf-8', errors='ignore')
+                        return (
+                            f"\n[+] PASSWORD FOUND: '{passphrase}'\n"
+                            f"[+] Data preview:\n---\n{preview}\n---\n"
+                            f"[+] Extract with: {self.command} -k \"{passphrase}\" -r {self.stego_file} /tmp/output.txt"
+                        )
+        except subprocess.TimeoutExpired:
+            pass
+        except Exception:
+            pass
         finally:
-            os.remove(tmp_file)
+            if os.path.exists(tmp_file):
+                try:
+                    os.remove(tmp_file)
+                except OSError:
+                    pass
+        return None
 
 
-class ThreadedOutguess013Cracker(ThreadedCracker):
-    def crack_function(self, stego_file, passphrase):
-        tmp_file = "/tmp/{}".format(md5.new(passphrase).hexdigest())
-        process = subprocess.Popen(['outguess-0.13',
-                                    '-k', passphrase,
-                                    '-r', stego_file,
-                                    tmp_file],
-                                   stdout=subprocess.PIPE,
-                                   stderr=subprocess.PIPE)
-        (out, err) = process.communicate()
+class OpenstegoCracker(StegoCracker):
+    """Cracker for OpenStego encrypted files."""
+
+    def try_password(self, passphrase: str) -> Optional[str]:
+        if found_password.is_set():
+            return None
+
         try:
-            with open(tmp_file, "r") as f:
-                data = f.read()
-                if len(data) > 0:
-                    ascii_data = "".join(filter(lambda x: ord(x) < 128, data))
-                    if float(len(ascii_data)) / float(len(data)) > 0.8:
-                        print("\nFound secret message:\n---\n{}\n---\n\
-Extract with `outguess -k \"{}\" -r {} /tmp/outguess_secret.txt`"
-                              .format(ascii_data, passphrase, stego_file))
-                        sys.exit(0)
-        finally:
-            os.remove(tmp_file)
+            process = subprocess.Popen(
+                ['openstego', 'extract', '-p', passphrase, '-sf', self.stego_file],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            out, err = process.communicate(timeout=30)
+            err = err.decode('utf-8', errors='ignore')
+
+            match = re.search(r'Extracted file: (.+)', err)
+            if match:
+                found_password.set()
+                return (
+                    f"\n[+] PASSWORD FOUND: '{passphrase}'\n"
+                    f"[+] Extracted file: '{match.group(1)}'\n"
+                    f"[+] Extract with: openstego extract -sf {self.stego_file} -p \"{passphrase}\""
+                )
+        except subprocess.TimeoutExpired:
+            pass
+        except Exception:
+            pass
+        return None
 
 
-class ThreadedOpenstegoCracker(ThreadedCracker):
-    def crack_function(self, stego_file, passphrase):
-        process = subprocess.Popen(['openstego', 'extract',
-                                    '-p', passphrase,
-                                    '-sf', stego_file],
-                                   stdout=subprocess.PIPE,
-                                   stderr=subprocess.PIPE)
-        (out, err) = process.communicate()
-        m = re.search(r"Extracted file: (.*)", err)
-        if m is not None:
-            print("\nFound '{}'!\n\
-Extract with `openstego extract -sf {} -p \"{}\"`"
-                  .format(m.group(1), stego_file, passphrase))
-            sys.exit(0)
+def get_cracker(tool: str, stego_file: str) -> StegoCracker:
+    """Factory function to create the appropriate cracker."""
+    crackers = {
+        'steghide': lambda: SteghideCracker(stego_file),
+        'outguess': lambda: OutguessCracker(stego_file, 'outguess'),
+        'outguess-0.13': lambda: OutguessCracker(stego_file, 'outguess-0.13'),
+        'openstego': lambda: OpenstegoCracker(stego_file),
+    }
 
-# TODO: jphide / jpseek brute forcing --- requires interactive passphrase...
+    if tool not in crackers:
+        raise ValueError(f"Unknown tool: {tool}. Available: {', '.join(crackers.keys())}")
+
+    return crackers[tool]()
+
+
+def count_lines(filepath: str) -> int:
+    """Count lines in a file efficiently."""
+    with open(filepath, 'rb') as f:
+        return sum(1 for _ in f)
+
+
+def bruteforce(cracker: StegoCracker, wordlist_path: str, num_threads: int) -> None:
+    """Run brute-force attack using thread pool."""
+    total_passwords = count_lines(wordlist_path)
+
+    print(f"[*] Starting brute-force with {num_threads} threads")
+    print(f"[*] Total passwords to try: {total_passwords}")
+
+    with open(wordlist_path, 'r', errors='ignore') as wordlist:
+        with tqdm(total=total_passwords, desc="Progress", unit="pwd") as progress:
+            with ThreadPoolExecutor(max_workers=num_threads) as executor:
+                futures = {}
+
+                for line in wordlist:
+                    if found_password.is_set():
+                        break
+
+                    passphrase = line.strip()
+                    if not passphrase:
+                        progress.update(1)
+                        continue
+
+                    future = executor.submit(cracker.try_password, passphrase)
+                    futures[future] = passphrase
+
+                    # Process completed futures to avoid memory buildup
+                    if len(futures) >= num_threads * 10:
+                        done = [f for f in futures if f.done()]
+                        for f in done:
+                            result = f.result()
+                            if result:
+                                print(result)
+                            del futures[f]
+                            progress.update(1)
+
+                # Process remaining futures
+                for future in as_completed(futures):
+                    result = future.result()
+                    if result:
+                        print(result)
+                    progress.update(1)
+
+    if not found_password.is_set():
+        print("\n[-] Password not found in wordlist")
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(prog='BRUTE')
-    parser.add_argument("-f", "--file", nargs="?", required=True, type=str,
-                        help="File containing secret message")
-    parser.add_argument("-w", "--wordlist", nargs="?", required=True,
-                        type=argparse.FileType('r'), default=sys.stdin,
-                        help="Wordlist with passphrases")
-    parser.add_argument("-t", "--threads", nargs="?", required=False,
-                        type=int, default=10,
-                        help="Number of threads")
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        prog='pybrute.py',
+        description='Multi-tool steganography brute-forcer',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  pybrute.py -f image.jpg -w wordlist.txt steghide
+  pybrute.py -f image.jpg -w rockyou.txt -t 8 outguess
+  pybrute.py -f image.png -w passwords.txt openstego
 
-    subparsers = parser.add_subparsers(title='Commands',
-                                       description='Choose stego tool')
-    steghide_parser = subparsers.add_parser('steghide',
-                                            help='steghide tool')
-    steghide_parser.set_defaults(tool='steghide')
+Supported tools:
+  steghide      - JPEG/BMP steganography
+  outguess      - JPEG steganography (current version)
+  outguess-0.13 - JPEG steganography (legacy version)
+  openstego     - PNG steganography
+        """
+    )
 
-    outguess_parser = subparsers.add_parser('outguess',
-                                            help='outguess tool')
-    outguess_parser.set_defaults(tool='outguess')
+    parser.add_argument(
+        '-f', '--file',
+        required=True,
+        help='Stego file to crack'
+    )
+    parser.add_argument(
+        '-w', '--wordlist',
+        required=True,
+        help='Wordlist file with passwords'
+    )
+    parser.add_argument(
+        '-t', '--threads',
+        type=int,
+        default=4,
+        help='Number of threads (default: 4)'
+    )
 
-    outguess013_parser = subparsers.add_parser('outguess-0.13',
-                                               help='outguess-0.13 tool')
-    outguess013_parser.set_defaults(tool='outguess-0.13')
+    subparsers = parser.add_subparsers(
+        title='Tools',
+        description='Choose the steganography tool',
+        dest='tool'
+    )
 
-    openstego_parser = subparsers.add_parser('openstego',
-                                               help='openstego tool')
-    openstego_parser.set_defaults(tool='openstego')
+    subparsers.add_parser('steghide', help='Crack steghide files')
+    subparsers.add_parser('outguess', help='Crack outguess files')
+    subparsers.add_parser('outguess-0.13', help='Crack outguess-0.13 files')
+    subparsers.add_parser('openstego', help='Crack openstego files')
 
-    return parser.parse_args()
+    args = parser.parse_args()
 
+    if not args.tool:
+        parser.error("Please specify a tool (steghide, outguess, outguess-0.13, openstego)")
 
-def bruteforce(Cracker, stego_file, wordlist, num_threads):
-    pool = threading.BoundedSemaphore(value=num_threads)
-    with tqdm(total=get_num_passphrases(wordlist)) as progress_bar:
-        for passphrase in wordlist:
-            passphrase = passphrase.strip()
-            try:
-                Cracker(pool, (stego_file, passphrase)).crack()
-            except:
-                print("Error: could not start thread")
-            progress_bar.update(1)
+    return args
 
 
-def get_num_passphrases(wordlist):
-    num_lines = sum(1 for line in wordlist)
-    wordlist.seek(0)
-    return num_lines
+def main():
+    """Main entry point."""
+    args = parse_args()
+
+    # Validate inputs
+    if not os.path.exists(args.file):
+        print(f"[-] Error: File not found: {args.file}")
+        sys.exit(1)
+
+    if not os.path.exists(args.wordlist):
+        print(f"[-] Error: Wordlist not found: {args.wordlist}")
+        sys.exit(1)
+
+    print(f"[*] Target file: {args.file}")
+    print(f"[*] Wordlist: {args.wordlist}")
+    print(f"[*] Tool: {args.tool}")
+    print(f"[*] Threads: {args.threads}")
+
+    try:
+        cracker = get_cracker(args.tool, args.file)
+        bruteforce(cracker, args.wordlist, args.threads)
+    except KeyboardInterrupt:
+        print("\n[!] Interrupted by user")
+        sys.exit(1)
+    except Exception as e:
+        print(f"[-] Error: {e}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
-    args = parse_args()
-    crackers = {
-        "steghide": ThreadedSteghideCracker,
-        "outguess": ThreadedOutguessCracker,
-        "outguess-0.13": ThreadedOutguess013Cracker,
-        "openstego": ThreadedOpenstegoCracker
-    }
-    print("Cracking {} with {} - {} threads"
-          .format(args.file, args.tool, args.threads))
-    bruteforce(crackers[args.tool], args.file,
-               args.wordlist, args.threads)
+    main()

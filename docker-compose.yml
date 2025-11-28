@@ -1,0 +1,56 @@
+# =============================================================================
+# docker-compose.yml - Easy startup for stego-toolkit
+# Part of stego-toolkit (2025 refresh)
+# =============================================================================
+#
+# Usage:
+#   docker compose up -d        # Start in background
+#   docker compose exec stego bash  # Get shell access
+#   docker compose down         # Stop and remove
+#
+# =============================================================================
+
+services:
+  stego:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: stego-toolkit:latest
+    container_name: stego-toolkit
+    hostname: stego
+    stdin_open: true
+    tty: true
+
+    # Mount your data directory
+    volumes:
+      - ./data:/data
+      - ./examples:/examples
+
+    # Expose ports for GUI access
+    ports:
+      - "127.0.0.1:22:22"      # SSH with X11 forwarding
+      - "127.0.0.1:5901:5901"  # VNC
+      - "127.0.0.1:6901:6901"  # noVNC (web browser)
+
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+
+    # Resource limits (optional - uncomment to enable)
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '4'
+    #       memory: 4G
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "which", "steghide"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+# Optional: Create named volumes for persistent data
+# volumes:
+#   stego-data:
