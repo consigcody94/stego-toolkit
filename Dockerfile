@@ -77,6 +77,11 @@ RUN apt-get update && apt-get upgrade -y && \
     # Ruby for zsteg
     ruby \
     ruby-dev \
+    # Node.js for StegCloak
+    nodejs \
+    npm \
+    # Rust toolchain for stegbrute (will be installed by script if needed)
+    # cargo \
     # Java for GUI tools (OpenStego, Stegsolve)
     default-jre-headless \
     # Password cracking/generation utilities

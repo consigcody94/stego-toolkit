@@ -21,6 +21,13 @@ A comprehensive Docker image for solving steganography challenges in CTF competi
   - [stegseek](https://github.com/RickdeJager/stegseek) - Lightning-fast steghide cracker (cracks rockyou.txt in <2 seconds!)
   - [stegcracker](https://github.com/Paradoxis/StegCracker) - Steghide brute-force utility
   - [hexyl](https://github.com/sharkdp/hexyl) - Modern hex viewer with colored output
+  - [stegify](https://github.com/DimitarPetrov/stegify) - Go-based LSB steganography (1200+ stars)
+  - [StegCloak](https://github.com/KuroLabs/stegcloak) - Hide secrets in text with invisible characters (3700+ stars)
+  - [stegbrute](https://github.com/R4yGM/stegbrute) - Fast Rust-based steghide bruteforcer
+  - [van-gonography](https://github.com/JoshuaKasa/van-gonography) - Hide any file inside images
+- **Automated Analysis**: New `stego_analyze.py` runs all tools automatically
+- **CTF Cheatsheet**: Quick reference guide at `docs/CHEATSHEET.md`
+- **AperiSolve Integration**: Submit files to online analysis with `aperisolve.sh`
 - **GPU Support**: NVIDIA CUDA for hashcat, John the Ripper, PyTorch, TensorFlow
 - **MCP Integration**: Model Context Protocol server for AI assistant integration (Claude Code, Gemini CLI, Codex CLI)
 - **Updated Tools**: All existing tools updated to latest versions
@@ -160,6 +167,61 @@ Claude: [Uses crack_steghide with rockyou.txt wordlist]
 
 ---
 
+## Automated Analysis
+
+### Quick Analysis with stego_analyze.py
+
+Run all applicable tools automatically on any file:
+
+```bash
+# Comprehensive analysis
+stego_analyze.py suspicious.jpg
+
+# With custom wordlist
+stego_analyze.py image.png --wordlist custom.txt
+
+# Save results to specific directory
+stego_analyze.py audio.wav --output ./results
+```
+
+The script automatically:
+- Detects file type and runs appropriate tools
+- Checks metadata, embedded files, and strings
+- Runs LSB analysis for images
+- Attempts password cracking for supported formats
+- Generates a JSON report with all findings
+
+### Online Analysis with AperiSolve
+
+Submit files to AperiSolve for comprehensive online analysis:
+
+```bash
+# Basic submission
+aperisolve.sh suspicious.png
+
+# With password attempt
+aperisolve.sh -p "password" image.jpg
+
+# Open results in browser
+aperisolve.sh -o image.png
+```
+
+### CTF Cheatsheet
+
+Quick reference for common CTF stego challenges:
+
+```bash
+# View the cheatsheet
+cat /docs/CHEATSHEET.md
+
+# Or on host
+cat docs/CHEATSHEET.md
+```
+
+See [docs/CHEATSHEET.md](docs/CHEATSHEET.md) for the full reference guide.
+
+---
+
 ## Tools
 
 ### New in 2025 Refresh
@@ -169,6 +231,10 @@ Claude: [Uses crack_steghide with rockyou.txt wordlist]
 | [stegseek](https://github.com/RickdeJager/stegseek) | Lightning-fast steghide cracker. Cracks rockyou.txt in under 2 seconds! | `stegseek stego.jpg wordlist.txt` |
 | [stegcracker](https://github.com/Paradoxis/StegCracker) | Steganography brute-force utility | `stegcracker stego.jpg wordlist.txt` |
 | [hexyl](https://github.com/sharkdp/hexyl) | Modern hex viewer with colored output | `hexyl stego.jpg` |
+| [stegify](https://github.com/DimitarPetrov/stegify) | Go-based LSB steganography for hiding files | `stegify encode --carrier img.png --data secret.zip --result out.png` |
+| [StegCloak](https://github.com/KuroLabs/stegcloak) | Hide text with invisible zero-width characters | `stegcloak hide -s "secret" -c "cover text"` |
+| [stegbrute](https://github.com/R4yGM/stegbrute) | Fast Rust-based steghide bruteforcer | `stegbrute -f stego.jpg -w wordlist.txt` |
+| [van-gonography](https://github.com/JoshuaKasa/van-gonography) | Hide any file type inside images | `van-gonography hide -c cover.png -f secret.zip -o stego.png` |
 
 ### General Screening Tools
 

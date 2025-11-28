@@ -137,6 +137,12 @@ test_command_exists "stegseek" "stegseek (fast steghide cracker)"
 # Check stegcracker (new addition)
 test_command_exists "stegcracker" "stegcracker"
 
+# Check stegify (Go LSB tool)
+test_command_exists "stegify" "stegify (Go LSB steganography)"
+
+# Check van-gonography
+test_command_exists "van-gonography" "van-gonography (file hiding)"
+
 # =============================================================================
 # Stegano Python Library
 # =============================================================================
@@ -144,6 +150,13 @@ print_header "STEGANO LIBRARY"
 
 test_command_exists "stegano-lsb" "stegano-lsb"
 test_command_exists "stegano-lsb-set" "stegano-lsb-set"
+
+# =============================================================================
+# Text Steganography Tools
+# =============================================================================
+print_header "TEXT STEGANOGRAPHY TOOLS"
+
+test_command_exists "stegcloak" "StegCloak (zero-width text stego)"
 
 # =============================================================================
 # Audio Tools
@@ -162,6 +175,7 @@ print_header "PASSWORD TOOLS"
 test_command_exists "john" "John the Ripper"
 test_command_exists "crunch" "crunch (wordlist generator)"
 test_command_exists "cewl" "CeWL (website wordlist generator)"
+test_command_exists "stegbrute" "stegbrute (Rust steghide cracker)"
 
 # =============================================================================
 # Utility Tools
@@ -182,6 +196,8 @@ test_command_exists "check_png.sh" "check_png.sh"
 test_command_exists "brute_jpg.sh" "brute_jpg.sh"
 test_command_exists "brute_png.sh" "brute_png.sh"
 test_command_exists "pybrute.py" "pybrute.py"
+test_command_exists "stego_analyze.py" "stego_analyze.py (auto-analysis)"
+test_command_exists "aperisolve.sh" "aperisolve.sh (online analysis)"
 
 # Test script help messages
 print_test "Testing check_jpg.sh --help..."
@@ -196,6 +212,20 @@ if run_in_container brute_jpg.sh --help 2>&1 | grep -q "Usage:"; then
     print_pass "brute_jpg.sh shows help"
 else
     print_fail "brute_jpg.sh help not working"
+fi
+
+print_test "Testing stego_analyze.py --help..."
+if run_in_container stego_analyze.py --help 2>&1 | grep -q "Usage\|usage"; then
+    print_pass "stego_analyze.py shows help"
+else
+    print_fail "stego_analyze.py help not working"
+fi
+
+print_test "Testing aperisolve.sh --help..."
+if run_in_container aperisolve.sh --help 2>&1 | grep -q "Usage:"; then
+    print_pass "aperisolve.sh shows help"
+else
+    print_fail "aperisolve.sh help not working"
 fi
 
 # =============================================================================
