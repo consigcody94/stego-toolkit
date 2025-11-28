@@ -13,10 +13,16 @@ A comprehensive Docker image for solving steganography challenges in CTF competi
 ## What's New in 2025 Refresh
 
 - **Modern Base Image**: Debian Bookworm (slim) instead of Debian Stretch
+- **Multiple Image Variants**:
+  - `stego-toolkit:latest` - Full image with GUI support (~2.5GB)
+  - `stego-toolkit:cli` - Lightweight CLI-only image (~1.5GB)
+  - `stego-toolkit:gpu` - GPU-accelerated with CUDA, hashcat, PyTorch (~8GB)
 - **New Tools Added**:
   - [stegseek](https://github.com/RickdeJager/stegseek) - Lightning-fast steghide cracker (cracks rockyou.txt in <2 seconds!)
   - [stegcracker](https://github.com/Paradoxis/StegCracker) - Steghide brute-force utility
   - [hexyl](https://github.com/sharkdp/hexyl) - Modern hex viewer with colored output
+- **GPU Support**: NVIDIA CUDA for hashcat, John the Ripper, PyTorch, TensorFlow
+- **MCP Integration**: Model Context Protocol server for AI assistant integration (Claude Code, Gemini CLI, Codex CLI)
 - **Updated Tools**: All existing tools updated to latest versions
 - **Improved Scripts**: Better UX with colored output, `--help` flags, and progress indicators
 - **Security**: Non-root user by default, minimal image with `--no-install-recommends`
@@ -34,13 +40,16 @@ A comprehensive Docker image for solving steganography challenges in CTF competi
 git clone https://github.com/consigcody94/stego-toolkit.git
 cd stego-toolkit
 
-# Build the Docker image
-./bin/build.sh
-# Or: docker build -t stego-toolkit .
+# Build the Docker image (choose your variant)
+./bin/build.sh              # Full image with GUI
+./bin/build.sh --cli        # CLI-only (lightweight)
+./bin/build.sh --gpu        # GPU-accelerated (requires NVIDIA)
+./bin/build.sh --all        # Build all variants
 
 # Run the toolkit with your files mounted
-./bin/run.sh
-# Or: docker run -it --rm -v $(pwd)/data:/data stego-toolkit
+./bin/run.sh                # Full image
+./bin/run.sh --cli          # CLI-only
+./bin/run.sh --gpu          # GPU-accelerated
 
 # Inside the container, analyze a file
 check_jpg.sh suspicious.jpg
@@ -54,6 +63,99 @@ stegseek suspicious.jpg rockyou.txt
 ```bash
 docker pull ghcr.io/consigcody94/stego-toolkit:latest
 docker run -it --rm -v $(pwd)/data:/data ghcr.io/consigcody94/stego-toolkit
+```
+
+---
+
+## Image Variants
+
+| Variant | Tag | Size | Description |
+|---------|-----|------|-------------|
+| **Full** | `stego-toolkit:latest` | ~2.5GB | Complete toolkit with GUI tools (VNC, X11, Stegsolve, Sonic Visualiser) |
+| **CLI** | `stego-toolkit:cli` | ~1.5GB | Lightweight CLI-only image, no GUI dependencies |
+| **GPU** | `stego-toolkit:gpu` | ~8GB | NVIDIA CUDA support for hashcat, John the Ripper, PyTorch, TensorFlow |
+
+### CLI-Only Image
+
+Perfect for servers, CI/CD, or when you don't need GUI tools:
+
+```bash
+# Build CLI image
+./bin/build.sh --cli
+
+# Run CLI image
+docker run -it --rm -v $(pwd)/data:/data stego-toolkit:cli
+
+# All CLI tools available
+stegseek, steghide, zsteg, binwalk, exiftool, strings, foremost, etc.
+```
+
+### GPU-Accelerated Image
+
+For password cracking with hashcat and ML-based steganalysis:
+
+```bash
+# Prerequisites: NVIDIA GPU + nvidia-container-toolkit
+# Install: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
+
+# Build GPU image
+./bin/build.sh --gpu
+
+# Run with GPU access
+./bin/run.sh --gpu
+# Or: docker run --gpus all -it --rm -v $(pwd)/data:/data stego-toolkit:gpu
+
+# Test GPU availability
+gpu-test
+
+# GPU-accelerated password cracking
+hashcat -m 0 -a 0 hash.txt rockyou.txt
+john-gpu --wordlist=rockyou.txt hashes.txt
+```
+
+---
+
+## MCP Integration (AI Assistants)
+
+The toolkit includes an MCP (Model Context Protocol) server for integration with AI assistants like Claude Code, Gemini CLI, and OpenAI Codex CLI.
+
+### Setup for Claude Code / Claude Desktop
+
+Add to your `claude_desktop_config.json`:
+
+```json
+{
+    "mcpServers": {
+        "stego-toolkit": {
+            "command": "docker",
+            "args": ["run", "-i", "--rm", "-v", "/path/to/data:/data", "stego-toolkit:cli", "python3", "/opt/mcp/stego-mcp-server.py"]
+        }
+    }
+}
+```
+
+### Available MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `analyze_image` | Comprehensive steganography analysis of images (JPG, PNG, BMP, GIF) |
+| `analyze_audio` | Analyze audio files for hidden data (MP3, WAV, FLAC) |
+| `extract_steghide` | Extract hidden data with steghide using a known password |
+| `crack_steghide` | Attempt to crack steghide password using stegseek |
+| `detect_lsb` | Detect LSB steganography in PNG/BMP images |
+| `extract_strings` | Extract readable strings from a file |
+| `check_metadata` | Extract file metadata using exiftool |
+| `binwalk_scan` | Scan for embedded files using binwalk |
+| `list_tools` | List all available tools in the toolkit |
+
+### Example Usage with Claude Code
+
+```
+User: Analyze this image for hidden data
+Claude: [Uses analyze_image tool on /data/suspicious.jpg]
+
+User: Try to crack the steghide password
+Claude: [Uses crack_steghide with rockyou.txt wordlist]
 ```
 
 ---
@@ -233,10 +335,16 @@ docker run --rm stego-toolkit check_jpg.sh --help
 
 ```
 stego-toolkit/
-├── Dockerfile          # Main Docker image definition
+├── Dockerfile          # Full image with GUI support
+├── Dockerfile.cli      # CLI-only lightweight image
+├── Dockerfile.gpu      # GPU-accelerated image (CUDA)
 ├── bin/                # Build and run helper scripts
+│   ├── build.sh        # Build images (--cli, --gpu, --all)
+│   └── run.sh          # Run containers (--cli, --gpu)
 ├── install/            # Tool installation scripts
 ├── scripts/            # Analysis and brute-force scripts
+├── mcp/                # MCP server for AI assistants
+│   └── stego-mcp-server.py
 ├── examples/           # Sample files for testing
 ├── tests/              # Smoke tests
 └── .github/workflows/  # CI/CD configuration

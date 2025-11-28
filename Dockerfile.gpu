@@ -1,0 +1,241 @@
+# =============================================================================
+# Stego-Toolkit: GPU-Accelerated Version (NVIDIA CUDA)
+# 2025 Refresh - GPU support for hashcat, john, and ML-based stego tools
+# =============================================================================
+# Prerequisites:
+#   - NVIDIA GPU with CUDA support
+#   - nvidia-container-toolkit installed on host
+#   - Docker >= 19.03
+#
+# Build: docker build -f Dockerfile.gpu -t stego-toolkit:gpu .
+# Run:   docker run --gpus all -it --rm -v $(pwd)/data:/data stego-toolkit:gpu
+# =============================================================================
+FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
+
+# Image metadata
+LABEL org.opencontainers.image.title="Stego-Toolkit GPU"
+LABEL org.opencontainers.image.description="GPU-accelerated steganography toolkit with CUDA support"
+LABEL org.opencontainers.image.version="2.0.0-gpu"
+LABEL org.opencontainers.image.authors="DominicBreuker (original), consigcody94 (2025 refresh)"
+LABEL org.opencontainers.image.source="https://github.com/consigcody94/stego-toolkit"
+LABEL org.opencontainers.image.licenses="MIT"
+LABEL org.opencontainers.image.variant="gpu"
+
+# Prevent interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+
+# CUDA environment
+ENV CUDA_HOME=/usr/local/cuda
+ENV PATH="${CUDA_HOME}/bin:${PATH}"
+ENV LD_LIBRARY_PATH="${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}"
+
+# =============================================================================
+# Install system packages
+# =============================================================================
+RUN apt-get update && apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends \
+    # Core utilities
+    apt-utils \
+    ca-certificates \
+    curl \
+    wget \
+    git \
+    unzip \
+    gnupg \
+    lsb-release \
+    software-properties-common \
+    # Forensics tools
+    foremost \
+    sleuthkit \
+    # Image analysis
+    binwalk \
+    libimage-exiftool-perl \
+    pngtools \
+    pngcheck \
+    imagemagick \
+    graphicsmagick \
+    # Stego tools from repos
+    outguess \
+    steghide \
+    # Development tools
+    build-essential \
+    cmake \
+    autotools-dev \
+    automake \
+    libtool \
+    pkg-config \
+    # Libraries
+    libevent-dev \
+    libjpeg-dev \
+    libpng-dev \
+    libmcrypt-dev \
+    libmhash-dev \
+    zlib1g-dev \
+    # OpenCL for GPU tools
+    ocl-icd-libopencl1 \
+    opencl-headers \
+    clinfo \
+    # Audio tools
+    ffmpeg \
+    sox \
+    # Text/hex editors
+    hexedit \
+    xxd \
+    # Python 3 environment
+    python3 \
+    python3-pip \
+    python3-venv \
+    python3-dev \
+    python3-setuptools \
+    python3-wheel \
+    # Ruby for zsteg
+    ruby \
+    ruby-dev \
+    # Java headless
+    default-jre-headless \
+    # Password cracking utilities
+    crunch \
+    cewl \
+    # Misc utilities
+    bsdmainutils \
+    file \
+    atomicparsley \
+    mediainfo \
+    p7zip-full \
+    && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+# =============================================================================
+# Install hashcat (GPU-accelerated password cracker)
+# =============================================================================
+RUN cd /tmp && \
+    HASHCAT_VERSION="6.2.6" && \
+    wget -q "https://hashcat.net/files/hashcat-${HASHCAT_VERSION}.tar.gz" && \
+    tar -xzf "hashcat-${HASHCAT_VERSION}.tar.gz" && \
+    cd "hashcat-${HASHCAT_VERSION}" && \
+    make -j$(nproc) && \
+    make install && \
+    cd / && \
+    rm -rf /tmp/hashcat*
+
+# =============================================================================
+# Install John the Ripper (Jumbo with GPU support)
+# =============================================================================
+RUN cd /tmp && \
+    git clone --depth 1 https://github.com/openwall/john.git john-jumbo && \
+    cd john-jumbo/src && \
+    ./configure --enable-opencl && \
+    make -j$(nproc) && \
+    cp -r ../run /opt/john && \
+    ln -sf /opt/john/john /usr/local/bin/john-gpu && \
+    cd / && \
+    rm -rf /tmp/john-jumbo
+
+# =============================================================================
+# Install Python packages (including GPU-accelerated ML libraries)
+# =============================================================================
+RUN pip3 install --break-system-packages --no-cache-dir \
+    # Core utilities
+    python-magic \
+    tqdm \
+    pillow \
+    numpy \
+    scipy \
+    # Stego tools
+    stegoveritas \
+    stegano \
+    stepic \
+    # Crypto
+    pycryptodome \
+    click \
+    # ML/Deep Learning for steganalysis (GPU-accelerated)
+    torch \
+    torchvision \
+    tensorflow \
+    # Additional GPU utilities
+    cupy-cuda12x
+
+# Install stegoveritas dependencies
+RUN stegoveritas_install_deps || true
+
+# =============================================================================
+# Install Ruby gems
+# =============================================================================
+RUN gem install zsteg --no-document
+
+# =============================================================================
+# Install tools from source/releases
+# =============================================================================
+COPY install /tmp/install
+RUN chmod a+x /tmp/install/*.sh
+
+# Run installation scripts (skip GUI-only tools for CLI GPU image)
+RUN for script in /tmp/install/*.sh; do \
+        case "$(basename $script)" in \
+            deepsound.sh|openpuff.sh|steganabara.sh|steg.sh|vnc_server.sh|ssh_server.sh|wine.sh) \
+                echo "=== Skipping GUI tool: $script ===" ;; \
+            *) \
+                echo "=== Running: $script ===" && \
+                bash "$script" || echo "Warning: $script had errors" ;; \
+        esac \
+    done && \
+    rm -rf /tmp/install
+
+# =============================================================================
+# Create GPU benchmark and test script
+# =============================================================================
+RUN cat > /usr/local/bin/gpu-test << 'GPUEOF'
+#!/bin/bash
+echo "=== GPU Test for Stego-Toolkit ==="
+echo ""
+echo "NVIDIA Driver Info:"
+nvidia-smi || echo "nvidia-smi not available"
+echo ""
+echo "CUDA Version:"
+nvcc --version 2>/dev/null || echo "nvcc not in PATH"
+echo ""
+echo "OpenCL Devices:"
+clinfo -l 2>/dev/null || echo "clinfo not available"
+echo ""
+echo "Hashcat GPU Test:"
+hashcat -I 2>/dev/null || echo "hashcat GPU info not available"
+echo ""
+echo "PyTorch CUDA:"
+python3 -c "import torch; print(f'PyTorch CUDA available: {torch.cuda.is_available()}'); print(f'CUDA devices: {torch.cuda.device_count()}')" 2>/dev/null || echo "PyTorch not available"
+echo ""
+echo "TensorFlow GPU:"
+python3 -c "import tensorflow as tf; print(f'TensorFlow GPUs: {len(tf.config.list_physical_devices(\"GPU\"))}')" 2>/dev/null || echo "TensorFlow not available"
+GPUEOF
+RUN chmod +x /usr/local/bin/gpu-test
+
+# =============================================================================
+# Create non-root user for security
+# =============================================================================
+RUN groupadd -r stego && \
+    useradd -r -g stego -d /home/stego -s /bin/bash -m stego && \
+    mkdir -p /data /examples && \
+    chown -R stego:stego /data /home/stego
+
+# =============================================================================
+# Copy project files
+# =============================================================================
+COPY examples /examples
+COPY scripts /opt/scripts
+COPY mcp /opt/mcp
+
+RUN find /opt/scripts -name '*.sh' -exec chmod a+x {} + && \
+    find /opt/scripts -name '*.py' -exec chmod a+x {} + && \
+    chmod a+x /opt/mcp/*.py && \
+    chown -R stego:stego /opt/scripts /examples /opt/mcp
+
+ENV PATH="/opt/scripts:/opt/john:${PATH}"
+
+# =============================================================================
+# Final configuration
+# =============================================================================
+WORKDIR /data
+USER stego
+CMD ["/bin/bash"]

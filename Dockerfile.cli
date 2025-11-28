@@ -1,26 +1,28 @@
 # =============================================================================
-# Stego-Toolkit: Modern Steganography CTF Toolkit
-# 2025 Refresh - Modernized Docker Image
+# Stego-Toolkit: CLI-Only Version (Lightweight)
+# 2025 Refresh - No GUI packages, minimal footprint
+# =============================================================================
+# Build: docker build -f Dockerfile.cli -t stego-toolkit:cli .
+# Run:   docker run -it --rm -v $(pwd)/data:/data stego-toolkit:cli
 # =============================================================================
 FROM debian:bookworm-slim
 
 # Image metadata
-LABEL org.opencontainers.image.title="Stego-Toolkit"
-LABEL org.opencontainers.image.description="Dockerized collection of steganography tools for CTF challenges"
-LABEL org.opencontainers.image.version="2.0.0"
+LABEL org.opencontainers.image.title="Stego-Toolkit CLI"
+LABEL org.opencontainers.image.description="Lightweight CLI-only steganography toolkit for CTF challenges"
+LABEL org.opencontainers.image.version="2.0.0-cli"
 LABEL org.opencontainers.image.authors="DominicBreuker (original), consigcody94 (2025 refresh)"
 LABEL org.opencontainers.image.source="https://github.com/consigcody94/stego-toolkit"
 LABEL org.opencontainers.image.licenses="MIT"
+LABEL org.opencontainers.image.variant="cli"
 
 # Prevent interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
-
-# Set locale for consistent behavior
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 
 # =============================================================================
-# Stage 1: Install system packages
+# Install CLI-only system packages (NO GUI dependencies)
 # =============================================================================
 RUN apt-get update && apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
@@ -31,9 +33,10 @@ RUN apt-get update && apt-get upgrade -y && \
     wget \
     git \
     unzip \
-    # Forensics meta-package (includes many stego tools)
-    forensics-all \
+    # Forensics tools (individual packages, not meta-package)
     foremost \
+    scalpel \
+    sleuthkit \
     # Image analysis
     binwalk \
     libimage-exiftool-perl \
@@ -44,7 +47,6 @@ RUN apt-get update && apt-get upgrade -y && \
     # Stego tools from repos
     outguess \
     steghide \
-    stegosuite \
     # Development tools for building from source
     build-essential \
     cmake \
@@ -59,11 +61,9 @@ RUN apt-get update && apt-get upgrade -y && \
     libmcrypt-dev \
     libmhash-dev \
     zlib1g-dev \
-    # Audio tools
+    # Audio tools (CLI only)
     ffmpeg \
     sox \
-    audacity \
-    sonic-visualiser \
     # Text/hex editors
     hexedit \
     xxd \
@@ -77,7 +77,7 @@ RUN apt-get update && apt-get upgrade -y && \
     # Ruby for zsteg
     ruby \
     ruby-dev \
-    # Java for GUI tools (OpenStego, Stegsolve)
+    # Java for CLI tools (headless)
     default-jre-headless \
     # Password cracking/generation utilities
     crunch \
@@ -88,94 +88,78 @@ RUN apt-get update && apt-get upgrade -y && \
     file \
     atomicparsley \
     mediainfo \
-    # VNC/SSH for GUI access (optional)
-    openssh-server \
-    tigervnc-standalone-server \
-    tigervnc-common \
-    novnc \
-    xfce4 \
-    xfce4-terminal \
-    dbus-x11 \
     && \
     # Clean up apt cache to reduce image size
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # =============================================================================
-# Stage 2: Install Python packages
+# Install Python packages
 # =============================================================================
-# Install Python packages globally (avoiding externally-managed-environment issue)
 RUN pip3 install --break-system-packages --no-cache-dir \
-    # Core utilities
     python-magic \
     tqdm \
     pillow \
     numpy \
     scipy \
-    # Stego tools
     stegoveritas \
     stegano \
     stepic \
-    # Additional useful packages
     pycryptodome \
     click
 
-# Install stegoveritas dependencies
+# Install stegoveritas dependencies (skip GUI deps)
 RUN stegoveritas_install_deps || true
 
 # =============================================================================
-# Stage 3: Install Ruby gems
+# Install Ruby gems
 # =============================================================================
 RUN gem install zsteg --no-document
 
 # =============================================================================
-# Stage 4: Install tools from source/releases
+# Install tools from source/releases
 # =============================================================================
-
-# Copy installation scripts
 COPY install /tmp/install
 RUN chmod a+x /tmp/install/*.sh
 
-# Run each installation script
+# Run installation scripts (skip GUI-only tools)
 RUN for script in /tmp/install/*.sh; do \
-        echo "=== Running: $script ===" && \
-        bash "$script" || echo "Warning: $script had errors"; \
+        # Skip GUI-only tools
+        case "$(basename $script)" in \
+            deepsound.sh|openpuff.sh|steganabara.sh|steg.sh|vnc_server.sh|ssh_server.sh) \
+                echo "=== Skipping GUI tool: $script ===" ;; \
+            *) \
+                echo "=== Running: $script ===" && \
+                bash "$script" || echo "Warning: $script had errors" ;; \
+        esac \
     done && \
     rm -rf /tmp/install
 
 # =============================================================================
-# Stage 5: Create non-root user for security
+# Create non-root user for security
 # =============================================================================
 RUN groupadd -r stego && \
     useradd -r -g stego -d /home/stego -s /bin/bash -m stego && \
-    # Create directories with proper permissions
     mkdir -p /data /examples && \
     chown -R stego:stego /data /home/stego
 
 # =============================================================================
-# Stage 6: Copy project files
+# Copy project files
 # =============================================================================
 COPY examples /examples
 COPY scripts /opt/scripts
 COPY mcp /opt/mcp
 
-# Make scripts executable and fix permissions
 RUN find /opt/scripts -name '*.sh' -exec chmod a+x {} + && \
     find /opt/scripts -name '*.py' -exec chmod a+x {} + && \
     chmod a+x /opt/mcp/*.py && \
     chown -R stego:stego /opt/scripts /examples /opt/mcp
 
-# Add scripts to PATH
 ENV PATH="/opt/scripts:${PATH}"
 
 # =============================================================================
 # Final configuration
 # =============================================================================
 WORKDIR /data
-
-# Switch to non-root user by default
-# Comment out to run as root if needed for certain tools
 USER stego
-
-# Default command
 CMD ["/bin/bash"]
