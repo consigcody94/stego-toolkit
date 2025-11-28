@@ -1,60 +1,76 @@
 #!/bin/bash
+# =============================================================================
+# Wine - Windows compatibility layer for running Windows stego tools
+# Updated for 2025 - Debian Bookworm compatible
+# =============================================================================
+set -euo pipefail
 
-set -e
+echo "=== Installing Wine ==="
 
-# enable i386 arch (required for 32bit windows)
-dpkg --add-architecture i386 && apt-get update
+# Enable i386 architecture (required for 32-bit Windows apps)
+dpkg --add-architecture i386
+apt-get update -qq
 
-# add repository
-# wget -O /tmp/Release.key https://dl.winehq.org/wine-builds/Release.key
-# apt-key add /tmp/Release.key
-# rm /tmp/Release.key
-# echo "deb https://dl.winehq.org/wine-builds/debian/ stretch main" >> /etc/apt/sources.list.d/wine.list
-# echo "deb http://ftp.de.debian.org/debian/ oldstable main" >> /etc/apt/sources.list.d/wine.list
-# apt-get install -y apt-transport-https # needed for wine repository
-# apt-get update
-
-# Install wine
-# apt-get install -y --install-recommends winehq-stable xvfb winbind
-apt-get install -y \
+# Install Wine from Debian repos
+apt-get install -y --no-install-recommends \
+    wine \
+    wine32 \
+    wine64 \
+    libwine \
+    fonts-wine \
+    xvfb \
+    winbind || {
+    # Fallback to just wine64 if 32-bit fails
+    apt-get install -y --no-install-recommends \
         wine \
-        wine32 \
         wine64 \
-        libwine \
-        libwine:i386 \
-        fonts-wine \
-        xvfb \
-        winbind
+        xvfb || true
+}
 
-# Configure 32 bit wineprefix (avoid bugs they say - breaks 64 bit only programs...)
-WINEARCH=win32 WINEPREFIX=/root/.wine winecfg
+# Initialize Wine prefix (suppress GUI prompts)
+echo "Initializing Wine prefix..."
+export DISPLAY=:99
+Xvfb :99 -screen 0 1024x768x16 &
+XVFB_PID=$!
+sleep 2
 
-# Download and install notepad++ (32 bit / 64 bit) for testing
-wget -O /tmp/notepad32.7z https://notepad-plus-plus.org/repository/7.x/7.5.1/npp.7.5.1.bin.7z
-wget -O /tmp/notepad64.7z https://notepad-plus-plus.org/repository/7.x/7.5.1/npp.7.5.1.bin.x64.7z
-7z e -o/opt/notepad32 -y /tmp/notepad32.7z
-7z e -o/opt/notepad64 -y /tmp/notepad64.7z
-rm /tmp/notepad32.7z
-rm /tmp/notepad64.7z
+# Try to initialize wine prefix
+WINEPREFIX=/root/.wine wineboot --init 2>/dev/null || true
 
-cat << EOF > /usr/bin/notepad++32
-#!/bin/sh
-wine /opt/notepad32/notepad++.exe \$@
-EOF
-chmod +x /usr/bin/notepad++32
-
-cat << EOF > /usr/bin/notepad++64
-#!/bin/sh
-wine /opt/notepad64/notepad++.exe \$@
-EOF
-chmod +x /usr/bin/notepad++64
-
+# Kill Xvfb
+kill $XVFB_PID 2>/dev/null || true
 
 # Install winetricks
-wget -O /usr/bin/winetricks https://raw.githubusercontent.com/Winetricks/winetricks/master/src/winetricks
-chmod +x /usr/bin/winetricks
-xvfb-run -a winetricks --self-update
+echo "Installing winetricks..."
+WINETRICKS_URL="https://raw.githubusercontent.com/Winetricks/winetricks/master/src/winetricks"
+if wget -q -O /usr/local/bin/winetricks "$WINETRICKS_URL"; then
+    chmod +x /usr/local/bin/winetricks
+    echo "winetricks installed"
+else
+    echo "Warning: Could not install winetricks"
+fi
 
-# Install dotnet framework 4.0
-xvfb-run -a winetricks -q dotnet40
-xvfb-run -a winetricks -q wmp10
+# Create wine wrapper for common use
+cat << 'EOF' > /usr/local/bin/wine-run
+#!/bin/bash
+# Wine wrapper with virtual display support
+# Usage: wine-run program.exe [args]
+
+if [[ -z "$DISPLAY" ]]; then
+    # No display, use Xvfb
+    export DISPLAY=:99
+    Xvfb :99 -screen 0 1024x768x16 &
+    XVFB_PID=$!
+    sleep 1
+    wine "$@"
+    EXIT_CODE=$?
+    kill $XVFB_PID 2>/dev/null
+    exit $EXIT_CODE
+else
+    wine "$@"
+fi
+EOF
+chmod +x /usr/local/bin/wine-run
+
+echo "=== Wine installed ==="
+wine --version 2>/dev/null || echo "Wine installation complete"

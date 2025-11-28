@@ -1,36 +1,58 @@
 #!/bin/bash
+# =============================================================================
+# John the Ripper (Jumbo) - Password cracker
+# Updated for 2025 - Latest version from GitHub
+# =============================================================================
+set -euo pipefail
 
-set -e
+echo "=== Installing John the Ripper (Jumbo) ==="
 
-# Install some openssl headers
-apt-get install -y libssl1.0-dev \
-                   zlib1g-dev
+# Install dependencies
+apt-get update -qq
+apt-get install -y -qq --no-install-recommends \
+    libssl-dev \
+    zlib1g-dev \
+    libgmp-dev \
+    libpcap-dev \
+    libbz2-dev \
+    libgomp1 \
+    yasm \
+    pkg-config
 
-# Download
-wget -q -O /tmp/jumbo-john.tar.gz http://openwall.com/john/j/john-1.8.0-jumbo-1.tar.gz
+# Clone latest John the Ripper from GitHub
+git clone --depth 1 https://github.com/openwall/john.git /opt/john-src
 
-# Extract
-mkdir -p /opt/jumbo-john
-tar -xzf /tmp/jumbo-john.tar.gz -C /opt/jumbo-john
-rm /tmp/jumbo-john.tar.gz
+# Build
+cd /opt/john-src/src
+./configure --disable-openmp || ./configure
+make -sj"$(nproc)"
 
-# compile
-# fix code with sed: https://blackcatsoftware.us/john-the-ripper-jumbo-1-8-0-compilemake-fails-in-fedora-25-gcc5/
-sed -i "482s/.*/\/\/#ifdef __x86_64__/" /opt/jumbo-john/john-1.8.0-jumbo-1/src/MD5_std.c
-sed -i "483s/.*/\/\/#define MAYBE_INLINE_BODY MAYBE_INLINE/" /opt/jumbo-john/john-1.8.0-jumbo-1/src/MD5_std.c
-sed -i "484s/.*/\/\/#else/" /opt/jumbo-john/john-1.8.0-jumbo-1/src/MD5_std.c
-sed -i "486s/.*/\/\/#endif/" /opt/jumbo-john/john-1.8.0-jumbo-1/src/MD5_std.c
+# Install to /opt/john
+mkdir -p /opt/john
+cp -r ../run/* /opt/john/
 
-cd /opt/jumbo-john/john-1.8.0-jumbo-1/src/ && ./configure && make -s clean && make -sj4 
-
-
-# install
-echo 'export JOHN=/opt/jumbo-john/john-1.8.0-jumbo-1/run' >> ~/.bashrc
-
-cat << EOF > /usr/bin/john
-#!/bin/sh
-echo "executing john in folder '\$JOHN' - use absolute paths to avoid confusion"
-cd \$JOHN
-./john \$@
+# Create wrapper script
+cat << 'EOF' > /usr/local/bin/john
+#!/bin/bash
+# John the Ripper wrapper
+export JOHN=/opt/john
+cd "$JOHN"
+./john "$@"
 EOF
-chmod +x /usr/bin/john
+chmod +x /usr/local/bin/john
+
+# Create additional utility links
+for util in unique unshadow unafs undrop zip2john rar2john keepass2john pdf2john; do
+    if [[ -f /opt/john/$util ]]; then
+        ln -sf /opt/john/$util /usr/local/bin/$util 2>/dev/null || true
+    fi
+done
+
+# Cleanup source
+rm -rf /opt/john-src
+
+# Add JOHN env var
+echo 'export JOHN=/opt/john' >> /etc/profile.d/john.sh
+
+echo "=== John the Ripper installed ==="
+john --version 2>/dev/null || echo "John installed (version check may require login shell)"

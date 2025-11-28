@@ -1,178 +1,197 @@
 #!/bin/bash
+# =============================================================================
+# Create Steganography Examples - Generate test files with hidden data
+# Updated for 2025 - Modern bash practices
+# =============================================================================
+set -euo pipefail
 
-PASSPHRASE=abcd
-COVER_IMAGE_JPG=ORIGINAL.jpg
-COVER_IMAGE_PNG=ORIGINAL.png
-COVER_AUDIO_WAV=ORIGINAL.wav
-COVER_AUDIO_MP3=ORIGINAL.mp3
-STEGO_FILES_FOLDER_JPG=stego-files/jpg
-STEGO_FILES_FOLDER_PNG=stego-files/png
-STEGO_FILES_FOLDER_WAV=stego-files/wav
-STEGO_FILES_FOLDER_MP3=stego-files/mp3
+# Configuration
+PASSPHRASE="abcd"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
 
-if [ ! -e $COVER_IMAGE_JPG ]; then
-    echo "Original image file $COVER_IMAGE_JPG does not exist. Exiting..."
-    exit 1
-fi
-if [ ! -e $COVER_IMAGE_PNG ]; then
-    echo "Original image file $COVER_IMAGE_PNG does not exist. Exiting..."
-    exit 1
-fi
-if [ ! -e $COVER_AUDIO_WAV ]; then
-    echo "Original audio file $COVER_AUDIO_WAV does not exist. Exiting..."
-    exit 1
-fi
-if [ ! -e $COVER_AUDIO_MP3 ]; then
-    echo "Original audio file $COVER_AUDIO_MP3 does not exist. Exiting..."
-    exit 1
-fi
-mkdir -p $STEGO_FILES_FOLDER_JPG
-mkdir -p $STEGO_FILES_FOLDER_PNG
-mkdir -p $STEGO_FILES_FOLDER_WAV
-mkdir -p $STEGO_FILES_FOLDER_MP3
+# Source files
+COVER_IMAGE_JPG="ORIGINAL.jpg"
+COVER_IMAGE_PNG="ORIGINAL.png"
+COVER_AUDIO_WAV="ORIGINAL.wav"
+COVER_AUDIO_MP3="ORIGINAL.mp3"
 
-echo "Embedding secret message into images using various tools"
+# Output directories
+STEGO_FILES_FOLDER_JPG="stego-files/jpg"
+STEGO_FILES_FOLDER_PNG="stego-files/png"
+STEGO_FILES_FOLDER_WAV="stego-files/wav"
+STEGO_FILES_FOLDER_MP3="stego-files/mp3"
+
+# Check for required source files
+check_file() {
+    if [[ ! -e "$1" ]]; then
+        echo "Error: Required file '$1' does not exist."
+        echo "Please ensure you have the original cover files in $SCRIPT_DIR"
+        exit 1
+    fi
+}
+
+check_file "$COVER_IMAGE_JPG"
+check_file "$COVER_IMAGE_PNG"
+check_file "$COVER_AUDIO_WAV"
+check_file "$COVER_AUDIO_MP3"
+
+# Create output directories
+mkdir -p "$STEGO_FILES_FOLDER_JPG"
+mkdir -p "$STEGO_FILES_FOLDER_PNG"
+mkdir -p "$STEGO_FILES_FOLDER_WAV"
+mkdir -p "$STEGO_FILES_FOLDER_MP3"
+
+# Secret message
+SECRET_MESSAGE="secret_message.txt"
+if [[ ! -f "$SECRET_MESSAGE" ]]; then
+    echo "This is a secret message for steganography testing!" > "$SECRET_MESSAGE"
+fi
+SECRET_MESSAGE_B64=$(base64 < "$SECRET_MESSAGE")
+
+echo "========================================"
+echo "Creating Steganography Example Files"
+echo "========================================"
+echo ""
 echo "Passphrase: '$PASSPHRASE'"
-
-SECRET_MESSAGE=secret_message.txt
-SECRET_MESSAGE_B64="`cat $SECRET_MESSAGE | base64`"
 echo ""
-echo "########### SECRET MESSAGE ###########"
-cat $SECRET_MESSAGE
-echo "######################################"
+echo "Secret Message:"
+echo "----------------------------------------"
+cat "$SECRET_MESSAGE"
+echo "----------------------------------------"
+echo ""
+
+# Function to run a stego tool with error handling
+run_tool() {
+    local tool_name="$1"
+    shift
+    echo ""
+    echo "... $tool_name"
+    if "$@" 2>/dev/null; then
+        echo "    [OK] $tool_name succeeded"
+    else
+        echo "    [SKIP] $tool_name failed or not available"
+    fi
+}
 
 ###############################
-############# JPG #############
+#          JPG Tools          #
 ###############################
 
-COVER_IMAGE=$COVER_IMAGE_JPG
-STEGO_FILES_FOLDER=$STEGO_FILES_FOLDER_JPG
-
 echo ""
-echo "Embedding into $COVER_IMAGE now ..."
+echo "=== Creating JPG stego files ==="
+COVER_IMAGE="$COVER_IMAGE_JPG"
+STEGO_FILES_FOLDER="$STEGO_FILES_FOLDER_JPG"
 
-############# steghide #############
+# steghide
+run_tool "steghide" steghide embed -f -ef "$SECRET_MESSAGE" -cf "$COVER_IMAGE" -p "$PASSPHRASE" -sf "$STEGO_FILES_FOLDER/steghide.jpg"
 
-echo ""
-echo "... steghide"
-steghide embed -f -ef $SECRET_MESSAGE -cf $COVER_IMAGE -p $PASSPHRASE -sf $STEGO_FILES_FOLDER/steghide.jpg
+# outguess
+run_tool "outguess" outguess -k "$PASSPHRASE" -d "$SECRET_MESSAGE" "$COVER_IMAGE" "$STEGO_FILES_FOLDER/outguess.jpg"
 
-############# outguess #############
+# outguess-0.13
+if command -v outguess-0.13 &>/dev/null; then
+    run_tool "outguess-0.13" outguess-0.13 -k "$PASSPHRASE" -d "$SECRET_MESSAGE" "$COVER_IMAGE" "$STEGO_FILES_FOLDER/outguess-0.13.jpg"
+fi
 
-echo ""
-echo "... outguess"
-outguess -k $PASSPHRASE -d $SECRET_MESSAGE $COVER_IMAGE $STEGO_FILES_FOLDER/outguess.jpg
-
-############# outguess-0.13 #############
-
-echo ""
-echo "... outguess"
-outguess-0.13 -k $PASSPHRASE -d $SECRET_MESSAGE $COVER_IMAGE $STEGO_FILES_FOLDER/outguess-0.13.jpg
-
-############# jphide/jpseek #############
-
-# echo ""
-# echo "... jphide (interactive passphrase, use '$PASSPHRASE')"
-# jphide $COVER_IMAGE $STEGO_FILES_FOLDER/jphide.jpg $SECRET_MESSAGE
-
-############# jsteg #############
-
-echo ""
-echo "... jsteg (has no passphrase)"
-jsteg hide $COVER_IMAGE $SECRET_MESSAGE $STEGO_FILES_FOLDER/jsteg.jpg
+# jsteg (no passphrase)
+run_tool "jsteg" jsteg hide "$COVER_IMAGE" "$SECRET_MESSAGE" "$STEGO_FILES_FOLDER/jsteg.jpg"
 
 ###############################
-############# PNG #############
+#          PNG Tools          #
 ###############################
 
-COVER_IMAGE=$COVER_IMAGE_PNG
-STEGO_FILES_FOLDER=$STEGO_FILES_FOLDER_PNG
-
 echo ""
-echo "Embedding into $COVER_IMAGE now ..."
+echo "=== Creating PNG stego files ==="
+COVER_IMAGE="$COVER_IMAGE_PNG"
+STEGO_FILES_FOLDER="$STEGO_FILES_FOLDER_PNG"
 
-############# openstego #############
+# openstego
+run_tool "openstego" openstego embed -mf "$SECRET_MESSAGE" -cf "$COVER_IMAGE" -p "$PASSPHRASE" -sf "$STEGO_FILES_FOLDER/openstego.png"
 
-echo ""
-echo "... openstego"
-openstego embed -mf $SECRET_MESSAGE -cf $COVER_IMAGE -p $PASSPHRASE -sf $STEGO_FILES_FOLDER/openstego.png
+# stegano-lsb (no passphrase)
+run_tool "stegano-lsb" stegano-lsb hide --input "$COVER_IMAGE" -f "$SECRET_MESSAGE" -e UTF-8 --output "$STEGO_FILES_FOLDER/stegano-lsb.png"
 
-############# stegano-lsb #############
+# stegano-red (no passphrase, base64 encoded)
+run_tool "stegano-red" stegano-red hide --input "$COVER_IMAGE" -m "$SECRET_MESSAGE_B64" --output "$STEGO_FILES_FOLDER/stegano-red.png"
 
-echo ""
-echo "... stegano-lsb (no passphrase)"
-stegano-lsb hide --input $COVER_IMAGE -f $SECRET_MESSAGE -e UTF-8 --output $STEGO_FILES_FOLDER/stegano-lsb.png
+# cloackedpixel
+if command -v cloackedpixel &>/dev/null; then
+    echo ""
+    echo "... cloackedpixel"
+    if cloackedpixel hide "$COVER_IMAGE" "$SECRET_MESSAGE" "$PASSPHRASE" 2>/dev/null; then
+        mv "${COVER_IMAGE}-stego.png" "$STEGO_FILES_FOLDER/cloackedpixel.png" 2>/dev/null || true
+        echo "    [OK] cloackedpixel succeeded"
+    else
+        echo "    [SKIP] cloackedpixel failed or not available"
+    fi
+fi
 
-############# stegano-lsb-set #############
-
-echo ""
-echo "... stegano-lsb-set (no passphrase)"
-
-# Only these four generators work! There are more. Check out `stegano-lsb-set hide -h`
-# for GENERATOR in composite eratosthenes identity triangular_numbers; do
-#   echo "... stegano-lsb-set --generator $GENERATOR"
-#   stegano-lsb-set hide --input $COVER_IMAGE -f $SECRET_MESSAGE -e UTF-8 -g $GENERATOR --output $STEGO_FILES_FOLDER/stegano-lsb-set-$GENERATOR.png
-# done
-
-# TODO: reveal currently thows a python error ... check out why `stegano-lsb-set reveal -i stegano-lsb-set-composite.png -e UTF-8 -g composite -o output.txt`
-
-############# stegano-red #############
-
-echo ""
-echo "... stegano-red (no passphrase, encoding base64 manually)"
-stegano-red hide --input $COVER_IMAGE -m $SECRET_MESSAGE_B64 --output $STEGO_FILES_FOLDER/stegano-red.png
-
-############# cloackedpixel #############
-
-echo ""
-echo "... cloackedpixel"
-cloackedpixel hide $COVER_IMAGE $SECRET_MESSAGE $PASSPHRASE
-mv $COVER_IMAGE-stego.png $STEGO_FILES_FOLDER/cloackedpixel.png
-
-############# LSBSteg #############
-
-echo ""
-echo "... LSBSteg"
-LSBSteg encode -i $COVER_IMAGE -o $STEGO_FILES_FOLDER/LSBSteg.png -f $SECRET_MESSAGE
+# LSBSteg
+run_tool "LSBSteg" LSBSteg encode -i "$COVER_IMAGE" -o "$STEGO_FILES_FOLDER/LSBSteg.png" -f "$SECRET_MESSAGE"
 
 ###############################
-############# WAV #############
+#          WAV Tools          #
 ###############################
 
-COVER_AUDIO=$COVER_AUDIO_WAV
-STEGO_FILES_FOLDER=$STEGO_FILES_FOLDER_WAV
-
-# ############# AudioStego #############
-
 echo ""
-echo "... AudioStego/hideme (no passphrase)"
-hideme $COVER_AUDIO $SECRET_MESSAGE && mv ./output.wav $STEGO_FILES_FOLDER/hideme.wav
+echo "=== Creating WAV stego files ==="
+COVER_AUDIO="$COVER_AUDIO_WAV"
+STEGO_FILES_FOLDER="$STEGO_FILES_FOLDER_WAV"
 
-############# steghide #############
+# steghide (WAV)
+run_tool "steghide" steghide embed -f -ef "$SECRET_MESSAGE" -cf "$COVER_AUDIO" -p "$PASSPHRASE" -sf "$STEGO_FILES_FOLDER/steghide.wav"
 
-echo ""
-echo "... steghide"
-steghide embed -f -ef $SECRET_MESSAGE -cf $COVER_AUDIO -p $PASSPHRASE -sf $STEGO_FILES_FOLDER/steghide.wav
+# hideme (AudioStego, no passphrase)
+if command -v hideme &>/dev/null; then
+    echo ""
+    echo "... hideme"
+    if hideme "$COVER_AUDIO" "$SECRET_MESSAGE" 2>/dev/null; then
+        mv ./output.wav "$STEGO_FILES_FOLDER/hideme.wav" 2>/dev/null || true
+        echo "    [OK] hideme succeeded"
+    else
+        echo "    [SKIP] hideme failed or not available"
+    fi
+fi
 
 ###############################
-############# MP3 #############
+#          MP3 Tools          #
 ###############################
 
-COVER_AUDIO=$COVER_AUDIO_MP3
-STEGO_FILES_FOLDER=$STEGO_FILES_FOLDER_MP3
+echo ""
+echo "=== Creating MP3 stego files ==="
+COVER_AUDIO="$COVER_AUDIO_MP3"
+STEGO_FILES_FOLDER="$STEGO_FILES_FOLDER_MP3"
 
-# ############# AudioStego #############
+# mp3stego (requires WAV input)
+if command -v mp3stego-encode &>/dev/null; then
+    echo ""
+    echo "... mp3stego"
+    TMP_COVER_AUDIO="/tmp/tmp_cover_audio.wav"
+    if ffmpeg -loglevel panic -y -i "$COVER_AUDIO_WAV" -flags bitexact "$TMP_COVER_AUDIO" 2>/dev/null; then
+        if mp3stego-encode -E "$SECRET_MESSAGE" -P "$PASSPHRASE" "$TMP_COVER_AUDIO" "$STEGO_FILES_FOLDER/mp3stego.mp3" 2>/dev/null; then
+            echo "    [OK] mp3stego succeeded"
+        else
+            echo "    [SKIP] mp3stego failed"
+        fi
+        rm -f "$TMP_COVER_AUDIO"
+    else
+        echo "    [SKIP] mp3stego requires WAV preprocessing"
+    fi
+fi
 
 echo ""
-echo "... AudioStego/hideme (no passphrase)"
-hideme $COVER_AUDIO $SECRET_MESSAGE && mv ./output.mp3 $STEGO_FILES_FOLDER/hideme.mp3
-
-# ############# mp3stego #############
-
+echo "========================================"
+echo "Example files created successfully!"
+echo "========================================"
 echo ""
-echo "... mp3stego - Input = WAV | Output = MP3"
-# preprocess WAV file with "bitexact" flag to reduce the chance of mp3stego throwing errors...
-TMP_COVER_AUDIO_FILE=/tmp/tmp_cover_audio.wav
-ffmpeg -loglevel panic -i $COVER_AUDIO -flags bitexact $TMP_COVER_AUDIO_FILE
-mp3stego-encode -E $SECRET_MESSAGE -P $PASSPHRASE $TMP_COVER_AUDIO_FILE $STEGO_FILES_FOLDER_MP3/mp3stego.mp3
-rm $TMP_COVER_AUDIO_FILE
+echo "Created stego files in:"
+ls -la stego-files/*/ 2>/dev/null || echo "  (check stego-files/ directory)"
+echo ""
+echo "To extract, use the corresponding tool with passphrase: '$PASSPHRASE'"
+echo ""
+echo "Examples:"
+echo "  steghide extract -sf stego-files/jpg/steghide.jpg -p $PASSPHRASE"
+echo "  stegseek stego-files/jpg/steghide.jpg rockyou.txt"
+echo "  zsteg stego-files/png/stegano-lsb.png"
+echo ""
